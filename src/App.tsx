@@ -9,11 +9,12 @@ function App() {
   const [storageValue, setStorageValue] = useState(1);
   const [storageUnit, setStorageUnit] = useState<'GB' | 'TB'>('GB');
   const [wallets, setWallets] = useState(['']);
-  const [referralCode, setReferralCode] = useState('');
+  const [referralCode, setReferralCode] = useState('criptoruim');
   const [connected, setConnected] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [isProcessing, setIsProcessing] = useState(false);
 
   const handleConnect = async () => {
     try {
@@ -86,16 +87,35 @@ function App() {
     }
   };
 
-  const addWallet = () => {
+  const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const text = e.target?.result as string;
+      // Split by newline and filter out empty lines
+      const newWallets = text.split('\n')
+        .map(line => line.trim())
+        .filter(line => line.length > 0);
+      
+      if (newWallets.length > 0) {
+        setWallets(newWallets);
+      }
+    };
+    reader.readAsText(file);
+  };
+
+  const handleAddWallet = () => {
     setWallets([...wallets, '']);
   };
 
-  const removeWallet = (index: number) => {
+  const handleRemoveWallet = (index: number) => {
     const newWallets = wallets.filter((_, i) => i !== index);
-    setWallets(newWallets);
+    setWallets(newWallets.length ? newWallets : ['']);
   };
 
-  const updateWallet = (index: number, value: string) => {
+  const handleWalletChange = (index: number, value: string) => {
     const newWallets = [...wallets];
     newWallets[index] = value;
     setWallets(newWallets);
@@ -199,33 +219,44 @@ function App() {
             </div>
 
             <div className="mb-6">
-              <label className="block text-sm font-medium mb-2">Wallet Addresses</label>
+              <div className="flex items-center justify-between mb-2">
+                <label className="text-sm font-medium">Wallet Addresses</label>
+                <div className="flex gap-2">
+                  <label className="cursor-pointer px-3 py-1 bg-[#1a1a1a] hover:bg-[#252525] rounded-lg text-sm">
+                    Upload TXT
+                    <input
+                      type="file"
+                      accept=".txt"
+                      onChange={handleFileUpload}
+                      className="hidden"
+                    />
+                  </label>
+                  <button
+                    onClick={handleAddWallet}
+                    className="px-3 py-1 bg-[#1a1a1a] hover:bg-[#252525] rounded-lg text-sm"
+                  >
+                    Add Wallet
+                  </button>
+                </div>
+              </div>
               {wallets.map((wallet, index) => (
                 <div key={index} className="flex gap-2 mb-2">
                   <input
                     type="text"
                     value={wallet}
-                    onChange={(e) => updateWallet(index, e.target.value)}
+                    onChange={(e) => handleWalletChange(index, e.target.value)}
                     placeholder="jkl1..."
                     className="flex-1 bg-[#1a1a1a] border border-gray-700 rounded-lg px-4 py-2"
                   />
-                  {index === 0 ? (
-                    <button
-                      onClick={addWallet}
-                      className="p-2 bg-[#3a3a3a] hover:bg-[#4a4a4a] rounded-lg"
-                    >
-                      <Plus className="w-5 h-5" />
-                    </button>
-                  ) : (
-                    <button
-                      onClick={() => removeWallet(index)}
-                      className="p-2 bg-[#3a3a3a] hover:bg-[#4a4a4a] rounded-lg"
-                    >
-                      <Minus className="w-5 h-5" />
-                    </button>
-                  )}
+                  <button
+                    onClick={() => handleRemoveWallet(index)}
+                    className="px-3 py-1 bg-[#1a1a1a] hover:bg-[#252525] rounded-lg"
+                  >
+                    -
+                  </button>
                 </div>
               ))}
+              <p className="text-xs text-gray-400 mt-1">Enter Jackal wallet addresses</p>
             </div>
 
             <div className="mb-6">
@@ -234,6 +265,7 @@ function App() {
                 type="text"
                 value={referralCode}
                 onChange={(e) => setReferralCode(e.target.value)}
+                placeholder="Enter referral code"
                 className="w-full bg-[#1a1a1a] border border-gray-700 rounded-lg px-4 py-2"
               />
             </div>

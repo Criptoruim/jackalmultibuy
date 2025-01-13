@@ -148,18 +148,30 @@ export class StorageService {
   private async broadcastTransaction(msgs: IWrappedEncodeObject[]): Promise<TransactionResult> {
     try {
       if (!this.client) {
-        throw new Error('Client not initialized');
+        return {
+          success: false,
+          error: 'Client not initialized'
+        };
       }
 
-      const result = await this.waitForTransaction(
+      if (!Array.isArray(msgs) || msgs.length === 0) {
+        return {
+          success: false,
+          error: 'No valid transaction messages provided'
+        };
+      }
+
+      console.log('Broadcasting transaction messages:', msgs);
+      const txResult = await this.waitForTransaction(
         this.client.broadcastAndMonitorMsgs(msgs)
       );
 
-      return result;
+      return txResult;
     } catch (error: any) {
+      console.error('Transaction broadcast error:', error);
       return {
         success: false,
-        error: error.message || 'Failed to broadcast transaction'
+        error: error?.message || 'Failed to broadcast transaction'
       };
     }
   }
@@ -222,18 +234,31 @@ export class StorageService {
 
           console.log('Purchase plan response:', response);
 
-          if (response.errors || !response.txEvent || response.txEvent.length === 0) {
-            console.error('Failed to create transaction:', response);
+          // Handle null or undefined response
+          if (!response) {
+            console.error('Received null response from purchaseStoragePlan');
             results.push({
               wallet: targetAddress,
               success: false,
-              error: response.errorText || 'Failed to create storage purchase transaction'
+              error: 'Failed to create storage purchase transaction: null response'
+            });
+            continue;
+          }
+
+          // Check for errors in the response
+          if (response.errors || !response.txEvent || !Array.isArray(response.txEvent) || response.txEvent.length === 0) {
+            const errorMessage = response.errorText || 'Failed to create storage purchase transaction';
+            console.error('Failed to create transaction:', errorMessage, response);
+            results.push({
+              wallet: targetAddress,
+              success: false,
+              error: errorMessage
             });
             continue;
           }
 
           // Broadcast the transaction
-          console.log('Broadcasting transaction...');
+          console.log('Broadcasting transaction with events:', response.txEvent);
           const result = await this.broadcastTransaction(response.txEvent);
 
           if (!result.success) {
