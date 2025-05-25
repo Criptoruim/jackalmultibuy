@@ -16,7 +16,8 @@ export const connectKeplr = async () => {
     await window.keplr.enable(chainId);
     const offlineSigner = window.keplr.getOfflineSigner(chainId);
     const accounts = await offlineSigner.getAccounts();
-    return accounts[0];
+    // Return the address as a string instead of the full account object
+    return accounts[0].address;
   } catch (error) {
     console.error("Error connecting to Keplr:", error);
     throw error;

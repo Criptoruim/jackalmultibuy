@@ -1,7 +1,9 @@
-import { useState } from 'react';
-import { Wallet, Plus, Minus } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Wallet } from 'lucide-react';
 import { connectKeplr } from './utils/wallet';
 import { storageService } from './utils/storage';
+import LoadingSpinner from './components/LoadingSpinner';
+import { priceService } from './utils/price';
 
 function App() {
   const [duration, setDuration] = useState(1);
@@ -9,22 +11,52 @@ function App() {
   const [storageValue, setStorageValue] = useState(1);
   const [storageUnit, setStorageUnit] = useState<'GB' | 'TB'>('GB');
   const [wallets, setWallets] = useState(['']);
+  const [useConnectedWallet, setUseConnectedWallet] = useState(false);
+  const [connectedWalletAddress, setConnectedWalletAddress] = useState('');
   const [referralCode, setReferralCode] = useState('criptoruim');
   const [connected, setConnected] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
-  const [isProcessing, setIsProcessing] = useState(false);
+  const [isConnecting, setIsConnecting] = useState(false);
+  const [jklPrice, setJklPrice] = useState<number>(0.083);
+  const [isPriceLoading, setIsPriceLoading] = useState(true);
+
+  // Fetch JKL price on component mount
+  useEffect(() => {
+    const updatePrice = async () => {
+      setIsPriceLoading(true);
+      try {
+        const price = await priceService.getPrice();
+        setJklPrice(price);
+      } catch (error) {
+        console.error('Failed to update price:', error);
+      } finally {
+        setIsPriceLoading(false);
+      }
+    };
+
+    updatePrice();
+  }, []);
 
   const handleConnect = async () => {
     try {
-      await connectKeplr();
+      setIsConnecting(true);
+      const address = await connectKeplr(); // Now returns string address directly
       await storageService.initialize();
       setConnected(true);
+      setConnectedWalletAddress(address);
       setError(null);
+      
+      // If using connected wallet is checked, update the wallet list
+      if (useConnectedWallet) {
+        setWallets([address]);
+      }
     } catch (error) {
       console.error('Failed to connect wallet:', error);
       setError('Failed to connect wallet. Please try again.');
+    } finally {
+      setIsConnecting(false);
     }
   };
 
@@ -122,11 +154,34 @@ function App() {
   };
 
   const calculateTotal = () => {
-    // Convert everything to years and TB for calculation
-    const yearsValue = durationType === 'years' ? duration : duration / 12;
+    // Convert everything to months and TB for calculation
+    const monthsValue = durationType === 'years' ? duration * 12 : duration;
     const tbValue = storageUnit === 'TB' ? storageValue : storageValue / 1024;
-    const basePrice = 795.195; // JKL per TB per year
-    return (basePrice * tbValue * yearsValue * wallets.length).toFixed(2);
+  
+    // Price per TB per month depends on duration
+    // $15 per TB per month for 1-11 months
+    // $12.5 per TB per month for 12+ months
+    const usdPerTBPerMonth = monthsValue >= 12 ? 12.5 : 15;
+  
+    // Calculate total USD
+    let totalUSD = usdPerTBPerMonth * tbValue * monthsValue * wallets.length;
+  
+    // Apply referral discount if code is provided
+    // 10% discount for 1-11 months, 5% discount for 12+ months
+    if (referralCode.trim()) {
+      if (monthsValue >= 12) {
+        totalUSD *= 0.95; // 5% discount for 12+ months
+      } else {
+        totalUSD *= 0.90; // 10% discount for 1-11 months
+      }
+    }
+
+    // Convert USD to JKL
+    const totalJKL = totalUSD / jklPrice;
+    return {
+      jkl: totalJKL.toFixed(2),
+      usd: totalUSD.toFixed(2)
+    };
   };
 
   const Toggle = ({ value, onChange, leftOption, rightOption }: { 
@@ -169,8 +224,14 @@ function App() {
             onClick={handleConnect}
             className="flex items-center gap-2 bg-[#2a2a2a] hover:bg-[#3a3a3a] px-6 py-3 rounded-lg mb-8"
           >
-            <Wallet className="w-5 h-5" />
-            Connect Wallet
+            {isConnecting ? (
+              <LoadingSpinner />
+            ) : (
+              <>
+                <Wallet className="w-5 h-5" />
+                Connect Wallet
+              </>
+            )}
           </button>
         ) : (
           <div className="bg-[#2a2a2a] p-6 rounded-lg mb-8">
@@ -219,6 +280,8 @@ function App() {
             </div>
 
             <div className="mb-6">
+
+              
               <div className="flex items-center justify-between mb-2">
                 <label className="text-sm font-medium">Wallet Addresses</label>
                 <div className="flex gap-2">
@@ -229,53 +292,86 @@ function App() {
                       accept=".txt"
                       onChange={handleFileUpload}
                       className="hidden"
+                      disabled={loading || useConnectedWallet}
                     />
                   </label>
                   <button
                     onClick={handleAddWallet}
                     className="px-3 py-1 bg-[#1a1a1a] hover:bg-[#252525] rounded-lg text-sm"
+                    disabled={loading || useConnectedWallet}
                   >
                     Add Wallet
                   </button>
                 </div>
               </div>
-              {wallets.map((wallet, index) => (
-                <div key={index} className="flex gap-2 mb-2">
-                  <input
-                    type="text"
-                    value={wallet}
-                    onChange={(e) => handleWalletChange(index, e.target.value)}
-                    placeholder="jkl1..."
-                    className="flex-1 bg-[#1a1a1a] border border-gray-700 rounded-lg px-4 py-2"
-                  />
-                  <button
-                    onClick={() => handleRemoveWallet(index)}
-                    className="px-3 py-1 bg-[#1a1a1a] hover:bg-[#252525] rounded-lg"
-                  >
-                    -
-                  </button>
+              
+              <div className="space-y-2">
+                {wallets.map((wallet, index) => (
+                  <div key={index} className="flex gap-2 mb-2">
+                    <input
+                      type="text"
+                      value={wallet}
+                      onChange={(e) => handleWalletChange(index, e.target.value)}
+                      placeholder="jkl1..."
+                      className={`flex-1 border border-gray-700 rounded-lg px-4 py-2 ${useConnectedWallet ? 'bg-gray-800 text-gray-400' : 'bg-[#1a1a1a]'}`}
+                      disabled={loading || useConnectedWallet}
+                    />
+                    <button
+                      onClick={() => handleRemoveWallet(index)}
+                      className="px-3 py-1 bg-[#1a1a1a] hover:bg-[#252525] rounded-lg"
+                      disabled={wallets.length === 1 || loading || useConnectedWallet}
+                    >
+                      -
+                    </button>
+                  </div>
+                ))}
+                <p className="text-xs text-gray-400 mt-1">Enter Jackal wallet addresses</p>
+              </div>
+              
+              {connected && (
+                <div className="flex justify-between items-center mt-2">
+                  <span className="text-xs text-gray-400"></span>
+                  <label className="flex items-center space-x-2 text-gray-300 cursor-pointer">
+                    <span className="text-sm">
+                      Use connected wallet only
+                    </span>
+                    <input
+                      type="checkbox"
+                      checked={useConnectedWallet}
+                      onChange={(e) => {
+                        setUseConnectedWallet(e.target.checked);
+                        if (e.target.checked && connectedWalletAddress) {
+                          setWallets([connectedWalletAddress]);
+                        } else if (!e.target.checked && wallets.length === 1 && wallets[0] === connectedWalletAddress) {
+                          setWallets(['']);
+                        }
+                      }}
+                      className="h-4 w-4 accent-[#e5fb75]"
+                      disabled={!connected || loading}
+                    />
+                  </label>
                 </div>
-              ))}
-              <p className="text-xs text-gray-400 mt-1">Enter Jackal wallet addresses</p>
-            </div>
-
-            <div className="mb-6">
-              <label className="block text-sm font-medium mb-2">Referral Code (Optional)</label>
-              <input
-                type="text"
-                value={referralCode}
-                onChange={(e) => setReferralCode(e.target.value)}
-                placeholder="Enter referral code"
-                className="w-full bg-[#1a1a1a] border border-gray-700 rounded-lg px-4 py-2"
-              />
+              )}
+              
             </div>
 
             <div className="flex justify-between items-center mb-6">
-              <div>
-                <p className="text-lg font-medium">Total</p>
-                <p className="text-sm text-gray-400">~${(parseFloat(calculateTotal()) * 0.226).toFixed(2)} USD</p>
+              <p className="text-lg font-medium">Total</p>
+              <div className="text-right">
+                <div className="flex items-center gap-2 justify-end">
+                  <p className="text-2xl font-bold">{calculateTotal().jkl} JKL</p>
+                  <button
+                    onClick={() => priceService.forceUpdate().then(setJklPrice)}
+                    className="text-sm text-gray-500 hover:text-gray-400 disabled:opacity-50"
+                    disabled={isPriceLoading}
+                  >
+                    {isPriceLoading ? '(updating...)' : '↻'}
+                  </button>
+                </div>
+                <p className="text-sm text-gray-400">
+                  ~${calculateTotal().usd} USD
+                </p>
               </div>
-              <p className="text-2xl font-bold">{calculateTotal()} JKL</p>
             </div>
 
             <button 
